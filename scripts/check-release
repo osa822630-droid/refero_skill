@@ -103,6 +103,19 @@ except (KeyError, IndexError, TypeError):
 if claude_version != version:
     fail(".claude-plugin/marketplace.json: plugin version does not match VERSION")
 
+claude_plugin = documents[".claude-plugin/plugin.json"]
+if claude_plugin.get("icon") != "./assets/icon.png":
+    fail(".claude-plugin/plugin.json: directory icon must reference ./assets/icon.png")
+claude_listing_urls = {
+    "documentationUrl": "https://doc.refero.design/mcp/getting-started",
+    "supportUrl": "https://doc.refero.design/help/contact",
+    "privacyPolicyUrl": "https://doc.refero.design/legal/privacy-policy",
+    "termsOfServiceUrl": "https://doc.refero.design/legal/terms-of-use",
+}
+for field, expected in claude_listing_urls.items():
+    if claude_plugin.get(field) != expected:
+        fail(f".claude-plugin/plugin.json: {field} must be {expected}")
+
 url_checks = {
     ".mcp.json": ("mcpServers", "refero", "url"),
     "mcp.json": ("mcpServers", "refero", "url"),
