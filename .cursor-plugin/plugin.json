@@ -1,7 +1,7 @@
 {
   "name": "refero",
   "displayName": "Refero",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Research real product interfaces and design with evidence from Refero.",
   "author": {
     "name": "Refero",
@@ -9,9 +9,9 @@
   },
   "publisher": "Refero",
   "homepage": "https://refero.design/mcp",
-  "repository": "https://github.com/referodesign/refero_skill",
+  "repository": "https://github.com/osa822630-droid/refero_skill",
   "license": "MIT",
-  "logo": "assets/icon.png",
+  "logo": "./plugins/refero/assets/icon.png",
   "keywords": [
     "design",
     "ui",
@@ -21,6 +21,6 @@
     "mcp"
   ],
   "category": "design",
-  "skills": "./skills/",
+  "skills": "./plugins/refero/skills/",
   "mcpServers": "./mcp.json"
 }
