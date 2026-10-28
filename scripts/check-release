@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Validate the Refero distribution package before release."""
+"""Validate the Refero distribution package before release.
+
+Besides the package checks, this enforces the layout that claude.ai's remote
+marketplace sync accepts: one catalog at the repository root, one self-contained
+plugin folder under plugins/, and a plugin.json inside that folder.
+"""
 
 from __future__ import annotations
 
@@ -11,19 +16,21 @@ from urllib.parse import unquote
 
 
 ROOT = Path(__file__).resolve().parent.parent
-SKILL = ROOT / "skills" / "refero-design" / "SKILL.md"
+PLUGIN = Path("plugins/refero")
+SKILL = PLUGIN / "skills" / "refero-design" / "SKILL.md"
 MCP_URL = "https://api.refero.design/mcp"
 
 JSON_FILES = [
-    ".codex-plugin/plugin.json",
     ".agents/plugins/marketplace.json",
-    ".claude-plugin/plugin.json",
     ".claude-plugin/marketplace.json",
     ".cursor-plugin/plugin.json",
     ".mcp.json",
     "mcp.json",
     "gemini-extension.json",
     "server.json",
+    str(PLUGIN / ".claude-plugin/plugin.json"),
+    str(PLUGIN / ".codex-plugin/plugin.json"),
+    str(PLUGIN / ".mcp.json"),
 ]
 
 REQUIRED = [
@@ -31,14 +38,30 @@ REQUIRED = [
     "README.md",
     "LICENSE",
     "SECURITY.md",
-    "assets/icon.png",
-    "assets/banner.png",
-    "skills/refero-design/SKILL.md",
-    "skills/refero-design/agents/openai.yaml",
-    "skills/refero-design/references/mcp-tools.md",
+    "tests/test_marketplace.py",
+    str(PLUGIN / "README.md"),
+    str(PLUGIN / "LICENSE"),
+    str(PLUGIN / ".mcp.json"),
+    str(PLUGIN / ".claude-plugin/plugin.json"),
+    str(PLUGIN / ".codex-plugin/plugin.json"),
+    str(PLUGIN / "assets/icon.png"),
+    str(PLUGIN / "assets/banner.png"),
+    str(SKILL),
+    str(SKILL.parent / "agents/openai.yaml"),
+    str(SKILL.parent / "references/mcp-tools.md"),
+    str(SKILL.parent / "references/claude-web.md"),
     *JSON_FILES,
 ]
 
+SPEC_FIELDS = {
+    "name",
+    "description",
+    "license",
+    "compatibility",
+    "metadata",
+    "allowed-tools",
+}
+KEBAB_CASE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 errors: list[str] = []
 
@@ -56,6 +79,30 @@ def load_json(relative: str) -> object:
         return {}
 
 
+def as_dict(value: object) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def check_local_path(
+    document: str, target: object, *, base: Path, label: str
+) -> None:
+    """Check a ./-prefixed manifest path resolves to a file inside `base`."""
+    if not isinstance(target, str) or not target.startswith("./"):
+        fail(f"{document}: {label} must be a path starting with ./ (got {target!r})")
+        return
+    if ".." in Path(target).parts:
+        fail(f"{document}: {label} must not escape with .. ({target})")
+        return
+    resolved = (base / target).resolve()
+    try:
+        resolved.relative_to(base.resolve())
+    except ValueError:
+        fail(f"{document}: {label} escapes its root: {target}")
+        return
+    if not resolved.exists():
+        fail(f"{document}: {label} points at a missing file: {target}")
+
+
 for relative in REQUIRED:
     if not (ROOT / relative).is_file():
         fail(f"missing required file: {relative}")
@@ -71,8 +118,8 @@ skill_files = [
     for path in ROOT.rglob("SKILL.md")
     if ".git" not in path.parts
 ]
-if skill_files != [Path("skills/refero-design/SKILL.md")]:
-    fail(f"expected one canonical SKILL.md, found: {skill_files}")
+if skill_files != [SKILL]:
+    fail(f"expected one canonical SKILL.md at {SKILL}, found: {skill_files}")
 
 try:
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
@@ -83,29 +130,81 @@ if not re.fullmatch(r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)", version):
 
 documents = {relative: load_json(relative) for relative in JSON_FILES}
 
-version_paths = {
-    ".codex-plugin/plugin.json": documents[".codex-plugin/plugin.json"],
-    ".claude-plugin/plugin.json": documents[".claude-plugin/plugin.json"],
-    ".cursor-plugin/plugin.json": documents[".cursor-plugin/plugin.json"],
-    "gemini-extension.json": documents["gemini-extension.json"],
-    "server.json": documents["server.json"],
-}
-for relative, document in version_paths.items():
-    actual = document.get("version") if isinstance(document, dict) else None
+version_paths = [
+    ".cursor-plugin/plugin.json",
+    "gemini-extension.json",
+    "server.json",
+    str(PLUGIN / ".claude-plugin/plugin.json"),
+    str(PLUGIN / ".codex-plugin/plugin.json"),
+]
+for relative in version_paths:
+    actual = as_dict(documents[relative]).get("version")
     if actual != version:
         fail(f"{relative}: version {actual!r} does not match VERSION {version!r}")
 
-claude_market = documents[".claude-plugin/marketplace.json"]
-try:
-    claude_version = claude_market["plugins"][0]["version"]
-except (KeyError, IndexError, TypeError):
-    claude_version = None
-if claude_version != version:
-    fail(".claude-plugin/marketplace.json: plugin version does not match VERSION")
+# --- claude.ai / Claude Code marketplace --------------------------------------
 
-claude_plugin = documents[".claude-plugin/plugin.json"]
+claude_market = as_dict(documents[".claude-plugin/marketplace.json"])
+claude_plugin = as_dict(documents[str(PLUGIN / ".claude-plugin/plugin.json")])
+claude_entries = claude_market.get("plugins")
+if not isinstance(claude_entries, list) or not claude_entries:
+    fail(".claude-plugin/marketplace.json: plugins must be a non-empty array")
+    claude_entries = []
+if not KEBAB_CASE.match(str(claude_market.get("name", ""))):
+    fail(".claude-plugin/marketplace.json: marketplace name must be kebab-case")
+if not as_dict(claude_market.get("owner")).get("name"):
+    fail(".claude-plugin/marketplace.json: owner.name is required")
+if not claude_market.get("description"):
+    fail(".claude-plugin/marketplace.json: top-level description is required")
+if claude_market.get("version") != version:
+    fail(".claude-plugin/marketplace.json: top-level version does not match VERSION")
+
+root_manifests = sorted(
+    path.name for path in (ROOT / ".claude-plugin").iterdir() if path.is_file()
+) if (ROOT / ".claude-plugin").is_dir() else []
+if root_manifests != ["marketplace.json"]:
+    fail(
+        ".claude-plugin/: only marketplace.json may live at the repository root; "
+        f"found {root_manifests}. The plugin manifest belongs in {PLUGIN}/.claude-plugin/"
+    )
+
+for entry in claude_entries:
+    if not isinstance(entry, dict):
+        fail(".claude-plugin/marketplace.json: plugin entries must be objects")
+        continue
+    name = entry.get("name")
+    source = entry.get("source")
+    if not isinstance(name, str) or not KEBAB_CASE.match(name):
+        fail(f".claude-plugin/marketplace.json: invalid plugin name {name!r}")
+    # claude.ai rejects "." and object sources for plugins inside the repository.
+    if not isinstance(source, str) or not source.startswith("./"):
+        fail(
+            ".claude-plugin/marketplace.json: source must be a relative string "
+            f"starting with ./ (got {source!r})"
+        )
+    elif ".." in Path(source).parts:
+        fail(f".claude-plugin/marketplace.json: source must not contain .. ({source})")
+    elif (ROOT / source).resolve() != (ROOT / PLUGIN).resolve():
+        fail(f".claude-plugin/marketplace.json: source must point at ./{PLUGIN}")
+    if entry.get("version") != version:
+        fail(f".claude-plugin/marketplace.json: {name} version does not match VERSION")
+    if name != claude_plugin.get("name"):
+        fail(".claude-plugin/marketplace.json: entry name must match plugin.json name")
+
+if not (ROOT / PLUGIN / ".claude-plugin/plugin.json").is_file():
+    fail(f"{PLUGIN}/.claude-plugin/plugin.json is required by claude.ai strict sync")
+if (ROOT / PLUGIN / "bin").exists():
+    fail(f"{PLUGIN}/bin/ would make claude.ai and Cowork refuse the plugin")
+if claude_plugin.get("version") != version:
+    fail(f"{PLUGIN}/.claude-plugin/plugin.json: version does not match VERSION")
 if claude_plugin.get("icon") != "./assets/icon.png":
-    fail(".claude-plugin/plugin.json: directory icon must reference ./assets/icon.png")
+    fail(f"{PLUGIN}/.claude-plugin/plugin.json: icon must reference ./assets/icon.png")
+check_local_path(
+    str(PLUGIN / ".claude-plugin/plugin.json"),
+    claude_plugin.get("icon"),
+    base=ROOT / PLUGIN,
+    label="icon",
+)
 claude_listing_urls = {
     "documentationUrl": "https://doc.refero.design/mcp/getting-started",
     "supportUrl": "https://doc.refero.design/help/contact",
@@ -114,32 +213,135 @@ claude_listing_urls = {
 }
 for field, expected in claude_listing_urls.items():
     if claude_plugin.get(field) != expected:
-        fail(f".claude-plugin/plugin.json: {field} must be {expected}")
+        fail(f"{PLUGIN}/.claude-plugin/plugin.json: {field} must be {expected}")
+
+# --- other platform manifests -------------------------------------------------
+
+codex_market = as_dict(documents[".agents/plugins/marketplace.json"])
+for entry in codex_market.get("plugins") or []:
+    if not isinstance(entry, dict):
+        continue
+    source = as_dict(entry.get("source"))
+    if source.get("source") != "local" or source.get("path") != f"./{PLUGIN}":
+        fail(f".agents/plugins/marketplace.json: source must be local ./{PLUGIN}")
+    plugin_codex = as_dict(documents[str(PLUGIN / ".codex-plugin/plugin.json")])
+    if entry.get("name") != plugin_codex.get("name"):
+        fail(".agents/plugins/marketplace.json: entry name must match Codex plugin.json")
+
+codex_plugin = as_dict(documents[str(PLUGIN / ".codex-plugin/plugin.json")])
+codex_manifest_path = str(PLUGIN / ".codex-plugin/plugin.json")
+for field in ("skills", "mcpServers"):
+    check_local_path(
+        codex_manifest_path, codex_plugin.get(field),
+        base=ROOT / PLUGIN, label=field,
+    )
+interface = as_dict(codex_plugin.get("interface"))
+for field in ("composerIcon", "logo"):
+    check_local_path(
+        codex_manifest_path, interface.get(field),
+        base=ROOT / PLUGIN, label=f"interface.{field}",
+    )
+for screenshot in interface.get("screenshots") or []:
+    check_local_path(
+        codex_manifest_path, screenshot,
+        base=ROOT / PLUGIN, label="interface.screenshots[]",
+    )
+
+cursor_plugin = as_dict(documents[".cursor-plugin/plugin.json"])
+cursor_manifest_path = ".cursor-plugin/plugin.json"
+for field in ("logo", "skills", "mcpServers"):
+    check_local_path(
+        cursor_manifest_path, cursor_plugin.get(field),
+        base=ROOT, label=field,
+    )
+
+# --- MCP endpoints ------------------------------------------------------------
 
 url_checks = {
     ".mcp.json": ("mcpServers", "refero", "url"),
     "mcp.json": ("mcpServers", "refero", "url"),
+    str(PLUGIN / ".mcp.json"): ("mcpServers", "refero", "url"),
     "gemini-extension.json": ("mcpServers", "refero", "httpUrl"),
 }
 for relative, keys in url_checks.items():
-    value = documents[relative]
+    value: object = documents[relative]
     try:
         for key in keys:
-            value = value[key]
+            value = as_dict(value)[key]
     except (KeyError, TypeError):
         value = None
     if value != MCP_URL:
         fail(f"{relative}: Refero MCP URL must be {MCP_URL}")
 
-server = documents["server.json"]
+if (ROOT / ".mcp.json").read_text(encoding="utf-8") != (
+    ROOT / PLUGIN / ".mcp.json"
+).read_text(encoding="utf-8"):
+    fail(f"{PLUGIN}/.mcp.json must stay identical to .mcp.json at the repository root")
+
+server = as_dict(documents["server.json"])
 try:
-    remote = server["remotes"][0]
-except (KeyError, IndexError, TypeError):
+    remote = as_dict((server.get("remotes") or [])[0])
+except (IndexError, TypeError):
     remote = {}
 if server.get("name") != "io.github.referodesign/refero":
     fail("server.json: unexpected MCP Registry name")
 if remote.get("type") != "streamable-http" or remote.get("url") != MCP_URL:
     fail("server.json: expected one production streamable-http remote")
+
+# --- skills and docs ----------------------------------------------------------
+
+frontmatter_lines = (ROOT / SKILL).read_text(encoding="utf-8").splitlines()
+fields: dict[str, str] | None = None
+if frontmatter_lines and frontmatter_lines[0].strip() == "---":
+    fields = {}
+    for line in frontmatter_lines[1:]:
+        if line.strip() == "---":
+            break
+        if not line.strip() or line.startswith((" ", "\t")):
+            continue
+        key, _, value = line.partition(":")
+        fields[key.strip()] = value.strip().strip('"')
+if fields is None:
+    fail(f"{SKILL}: missing YAML frontmatter")
+else:
+    unknown = set(fields) - SPEC_FIELDS
+    if unknown:
+        fail(f"{SKILL}: non-spec frontmatter fields {sorted(unknown)}")
+    if fields.get("name") != SKILL.parent.name:
+        fail(f"{SKILL}: name must match the skill folder name")
+    description = fields.get("description", "")
+    if not description or len(description) > 1024:
+        fail(f"{SKILL}: description must be 1-1024 characters (got {len(description)})")
+    if "disable-model-invocation" in fields:
+        fail(f"{SKILL}: disable-model-invocation is not valid on claude.ai")
+
+skill_text = (ROOT / SKILL).read_text(encoding="utf-8")
+web_guide = SKILL.parent / "references/claude-web.md"
+if "## Claude on the web" not in skill_text:
+    fail(f"{SKILL}: missing Claude on the web section")
+if "claude-web.md" not in skill_text:
+    fail(f"{SKILL}: missing link to {web_guide.name}")
+if web_guide.is_file():
+    web_text = web_guide.read_text(encoding="utf-8")
+    for phrase in ("Connectors", "OAuth", "no shell", "state"):
+        if phrase not in web_text:
+            fail(f"{web_guide}: missing {phrase!r} guidance")
+
+plugin_readme = ROOT / PLUGIN / "README.md"
+if plugin_readme.is_file():
+    words = re.sub(r"```.*?```", " ", plugin_readme.read_text(encoding="utf-8"), flags=re.S)
+    if len(re.findall(r"\b[\w'-]+\b", words)) < 40:
+        fail(f"{plugin_readme.relative_to(ROOT)}: needs at least 40 words outside code blocks")
+    text = plugin_readme.read_text(encoding="utf-8")
+    for phrase in ("https://api.refero.design/mcp", "Use it", "Data"):
+        if phrase not in text:
+            fail(f"{plugin_readme.relative_to(ROOT)}: missing {phrase!r} section or endpoint")
+
+if (ROOT / "LICENSE").is_file() and (ROOT / PLUGIN / "LICENSE").is_file():
+    if (ROOT / "LICENSE").read_bytes() != (ROOT / PLUGIN / "LICENSE").read_bytes():
+        fail(f"{PLUGIN}/LICENSE must be identical to the repository LICENSE")
+
+# --- secrets and local links --------------------------------------------------
 
 machine_manifest_paths = [ROOT / relative for relative in JSON_FILES]
 secret_patterns = [
@@ -159,7 +361,13 @@ for path in machine_manifest_paths:
             fail(f"{path.relative_to(ROOT)}: possible secret detected")
 
 markdown_link = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
-for path in [ROOT / "README.md", SKILL, *(SKILL.parent / "references").glob("*.md")]:
+markdown_files = [
+    ROOT / "README.md",
+    plugin_readme,
+    ROOT / SKILL,
+    *(SKILL.parent / "references").glob("*.md"),
+]
+for path in markdown_files:
     if not path.is_file():
         continue
     for target in markdown_link.findall(path.read_text(encoding="utf-8")):

@@ -7,8 +7,8 @@
     {
       "name": "refero",
       "source": {
-        "source": "url",
-        "url": "https://github.com/referodesign/refero_skill.git"
+        "source": "local",
+        "path": "./plugins/refero"
       },
       "policy": {
         "installation": "AVAILABLE",

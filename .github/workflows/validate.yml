@@ -1,0 +1,25 @@
+name: Validate package
+
+on:
+  push:
+    branches: [master, main, "arena/**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Validate release manifests and layout
+        run: python3 scripts/check-release
+
+      - name: Validate claude.ai marketplace layout
+        run: python3 -m unittest discover -s tests -v

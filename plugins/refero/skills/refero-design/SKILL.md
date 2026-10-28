@@ -60,7 +60,9 @@ This skill is useful on its own as a research-first design methodology and craft
 Research is mandatory. Use Refero MCP for live style, screen, and flow research when
 available; otherwise research with bundled craft references and any user-provided references.
 
-Typical MCP setup:
+In a plugin install (Claude Code, Cowork, or Claude on the web) the remote server
+is already declared in `.mcp.json` — do not run the command below. The standalone
+skill needs it only when the host has no Refero connector configured:
 
 ```bash
 claude mcp add --transport http refero https://api.refero.design/mcp
@@ -69,6 +71,30 @@ claude mcp add --transport http refero https://api.refero.design/mcp
 Then run `/mcp` in Claude Code and sign in to Refero when prompted.
 
 For full tool details, read [references/mcp-tools.md](references/mcp-tools.md).
+
+## Claude on the web (claude.ai)
+
+In claude.ai chat, Claude Desktop's Chat tab, and mobile chat, this skill loads
+but there is **no shell, no file tools, and no `/mcp` command**. Read
+[references/claude-web.md](references/claude-web.md) for the full adaptation.
+
+- **Connector:** installing the plugin does not connect it. The user must open
+  **Customize → Plugins → Refero → Connectors**, add/connect the Refero
+  connector, and finish the browser OAuth sign-in. Live styles, screens, and
+  flows need a Refero account with MCP access.
+- **No tools available:** never invent Refero references. Say which research
+  layer is missing and ground the work in the bundled craft references and any
+  references the user supplies. Keep the reference lock and decision ledger.
+- **Same methodology:** styles → screens → flows, synthesis before
+  implementation, no averaging, preserve token and media roles, and run the
+  quality gate. Only tool access and delivery change.
+- **Delivery:** chat cannot edit files, run a dev server, or screenshot a page.
+  Hand over complete copy-pasteable code or an artifact, print a compact
+  "Refero design state" block (brief, evidence, reference lock, decision ledger)
+  so a new chat can continue, and name the visual-QA checks the user must run
+  locally.
+- **Ignored here:** `claude mcp add`, `/mcp`, Bash/Read/Glob steps elsewhere in
+  this skill. They apply to Claude Code and Cowork only.
 
 ## Discovery
 

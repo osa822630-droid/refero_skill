@@ -1,7 +1,7 @@
 {
-  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "refero",
-  "description": "Refero design research skill and read-only MCP tools.",
+  "description": "Refero design research skill and read-only MCP tools. Add this repository as a marketplace in Claude on the web or in Claude Code.",
+  "version": "1.0.4",
   "owner": {
     "name": "Refero",
     "email": "support@refero.design"
@@ -9,15 +9,15 @@
   "plugins": [
     {
       "name": "refero",
-      "source": "./",
+      "source": "./plugins/refero",
       "description": "Research real product interfaces and design with evidence from Refero.",
-      "version": "1.0.3",
+      "version": "1.0.4",
       "author": {
         "name": "Refero",
         "email": "support@refero.design"
       },
       "homepage": "https://refero.design/mcp",
-      "repository": "https://github.com/referodesign/refero_skill",
+      "repository": "https://github.com/osa822630-droid/refero_skill",
       "license": "MIT",
       "category": "design"
     }
